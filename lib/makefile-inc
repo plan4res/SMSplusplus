@@ -1,0 +1,70 @@
+##############################################################################
+############################### makefile-inc #################################
+##############################################################################
+#                                                                            #
+#   makefile of libSMS++ as a pre-built library                              #
+#                                                                            #
+#   This makefile is thought to be included by the makefile of some code     #
+#   using the libSMS++ library. However, this makefile treats libSMS++ as    #
+#   a pre-built library, in the sense that it ensures that it is built (by   #
+#   a separate make process) and then returns as $(SMS++OBJ) the complete    #
+#   libSMS++ library together with macros $(SMS++INC) and $(SMS++LIB) for    #
+#   includes and external libraries, but not $(SMS++H).                      #
+#                                                                            #
+#   Input:  $(SMS++SDR) = the directory where the core SMS++ source is       #
+#                                                                            #
+#   Output: there is no $(SMS++H) output, since the calling makefile has     #
+#           no need to check for changes in the .h and rebuild the .a: this  #
+#           is all done here inside. However, the following macros are       #
+#           provided because the code using libSMS++ need to know where to   #
+#           find the .h files to include, which external libraries and       #
+#            -L< libdirs > need be used in the linking phase, and of course  #
+#           libSMS++.a need be linked against.                               #
+#           $(SMS++INC) = the -I$( include directories ) for SMS++           #
+#           $(SMS++LIB) = external libreries + -L< libdirs > for SMS++       #
+#           $(SMS++OBJ) = the libSMS++ library itself                        #
+#                                                                            #
+#   Internally, the makefile calls makefile-c, strips away the *H macro and  #
+#   redefines the *OBJ one.                                                  #
+#                                                                            #
+#                              Antonio Frangioni                             #
+#                         Dipartimento di Informatica                        #
+#                             Universita' di Pisa                            #
+#									     #
+##############################################################################
+
+# include the SMS++ makefile internally defining all external modules - - - -
+
+include $(SMS++SDR)/lib/makefile-c
+
+# copy the list of object files, using ":=" to ensure it remains the same
+# even after that SMS++OBJ is redefined later on
+SMS++_LOCAL_OBJ := $(SMS++OBJ)
+
+# define the local name for the library - - - - - - - - - - - - - - - - - - -
+
+SMS++_LOCAL_LIB = $(SMS++SDR)/lib/libSMS++.a
+
+# default target- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+default: $(SMS++_LOCAL_LIB)
+
+# clean - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+clean::
+	rm -f $(SMS++_LOCAL_LIB)
+
+# archive the library - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+$(SMS++_LOCAL_LIB): $(SMS++_LOCAL_OBJ)
+	ar -ruv $(SMS++_LOCAL_LIB) $(SMS++_LOCAL_OBJ)
+
+# re-define the OBJ as the library- - - - - - - - - - - - - - - - - - - - - -
+
+SMS++OBJ = $(SMS++_LOCAL_LIB)
+
+# clean-up unrequired things- - - - - - - - - - - - - - - - - - - - - - - - -
+
+SMS++H =
+
+########################## End of makefile-inc ###############################

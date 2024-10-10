@@ -1,0 +1,789 @@
+2022-05-26 [high] avoid that the value of a fixed [Col]Variable be changed
+
+	Currently, calling set_value() of a fixed ColVariable plainly changes the
+	value. This is very dangerous and can lead to serious errors since the
+	change of a fixed variable does change the problem but no Modification is
+	issued and therefore the Solver are not able to react to it. Hence, it
+	should be changed in
+
+	virtual void set_value( VarValue new_value = 0 ) {
+	 if( is_fixed() ) {
+          if( f_value != new_value )
+	   throw( std::logic_error( "changing the value of a fixed ColVariable" ) );
+	  return;
+          }
+	 f_value = new_value;
+         }
+
+	Issue is this may broke some tests and it will require significant testing
+	before being accepted, so we are not doing it now. But we should.
+
+
+2022-02-10 [medium] add multi-dimensional vectors of stuff with non-uniform size
+
+        For some applications (UC) it would be quite handy to have groups of
+	Variable/Constraint with multiple indices, but not all slices necessarily
+	of the same dimension. This could be obtained by std::vector< std::vector<
+	... > > nested a number of times. This might be achievable in the context
+	of explicit "Variable / Constraint Group" replacing the boost::any (see)
+
+2022-02-10 [very high] get rid of the boost::any
+
+	The idea of boost::any seemed cool at the time, but in fact it only brings
+	pain, since you do need to know the *exact* type of stuff in order to
+	take it out of a boost::any. This means that, for instance, you have no
+	way of saying "if this Constraint derives from RowConstraint, give it to
+	me". We should get rid of boost::any and define a
+
+	    template< VarOrConst >
+	    class Group
+
+        that implements the concept of "group of Variable / Constraint". The
+	Group should have a size, a name, a number of indices and ways to
+	access to any item, as well as to iterate on all them. It should be
+	possible (not clear if it is) to know if the Group contains, say
+	Constraint derived from RowConstraint and get a RowConstraint * for
+	each of them irrespective to the actual type. Most likely
+
+	    A Variable / Constraint SHOULD HAVE A POINTER TO THE Group IT
+	    BELONGS TO RATHER THAN TO THE Block, WITH OF COURSE THE Group
+	    HAVING THE POINTER TO THE Block
+
+        Also
+
+	    A Group SHOULD KNOW ITS INDEX INSIDE THE SET OF Group OF THE
+	    Block, SO THAT, GIVEN A POINTER TO A Variable / Constraint, ONE
+	    CAN EASILY RECONSTRUCT AN "ABSTRACT" (MULTI) INDEX THAT UNIQUELY
+	    IDENTIFIES THE Variable / Constraint
+
+         All this would set the stage for
+
+             BEING CAPABLE OF EFFICIENLTY MAKING A COPY OF THE WHOLE ABSTRACT
+	     REPRESENTATION OF A Block INTO A, SAY, AbstractBlock
+
+2020-08-12 [low] add configuration and vector-of-configuration parameters
+
+	Rather than one single "extra" Configuration, ComputeConfig could have
+	an arbitrary number of Configuration parameters and even
+	vector-of-configuration parameters. This would, I'd say, make it almost
+	infinitely flexible, thereby negating every reasonable need for having
+	:ComputeConfig (of which we have none even now). Since this would break a
+	number of things, it is best left for the future.
+
+
+2020-10-22 [low] add explicit support for non-handled parameters
+
+	Add methods bool is_*_par() to ThinComputeInterface that return true if that
+	parameter is actually handled. The methods return false in the base class, so
+	that a derived class not handling the parameters "explicitly tells it".
+	They are used by ComputeConfiguration to avoid dealing with parameters that
+	are explicitly not handled.
+
+	Breaks the interface in the sense that :ThinComputeInterface that *do* deal
+	with the parameters must now tell which ones they deal with. Simple version
+	is just to always return true and then possibly still ignore some, so not a
+	big deal (but still to be done).
+
+	Useful side effect is that one can then "intentionally leave holes" in the
+	range of parameter indices, which may be useful e.g. when dealing with
+	existing Solver with intricate parameters (say, Cplex).
+
+
+2020-10-01 [low, unfortunately] Add MultiFunction and MultiRowConstraint
+
+	A MultiFunction is "just" the equivalent of a std::vector< Function >, its
+	value being a std::vector< FunctionValue >. However, by being a unique object
+	it can be managed more efficiently when "all the underlying Function change in
+	the same way". The obvious use case is a LinearMultiFunction, whose obvious
+	implementation is a std::vector< std::pair< ColVariable * , std::vector< 
+	FunctionValue > > >; that is, a *column* in a coefficient matrix. This could
+	be used in a MultiRowConstraint whose LHS and RHS are themselves
+	std::vector< FunctionValue >. According to what kind of operations are
+	done on the constrant, this may provide huge benefits in terms of many fewer
+	Modification and much more streamlined operations.
+
+	Such a LinearMultiFunction would be a "dense" one, hence one should probably
+	also have a LinearSparseMultiFunction; this may use Eigen sparse vectors,
+	although I'm not really convinced by these yet.
+
+	MultiFunction could/should have a way to add and remove Function (rows),
+	thereby making them "dynamic" even if used inside a static MultiRowConstraint.
+	This may create issues, tough.
+
+	Another advantage would be to make it easier to handle "shared Constraint"
+	between Block. A "shared Constraint" could be a [Multi]RowConstraint to the
+	[Multi]Function to which all [sub-]Block contribute some term (variable).
+	Each [sub-]Block could mind its own business (Variable) without bothering what
+	the other [sub-]Block do, allowing a "distributed management of a shared
+	Constraint". Perhaps this should be put as a separate TODO, although in
+	principle it does not seem to need tools that do not exist yet to work.
+	But one should probably mention the possibility somewhere, and possibly even
+	have methods of the Block that provide their "shared Constraint", although
+	it is not clear how that could be done (Function is not even mentioned in
+	Block, in principle with good reasons).
+
+
+2020-09-10 [low] Retrieving the "abstract name" of a Variable and printing the model
+
+        In many cases, printing the full model would be useful. In particular,
+        if the model turns out to be unexpectedly unfeasible, one should fetch
+        the dual ray from the CDASolver (if any) and use it to output an IS.
+        The biggest hurdle here is to be able to retrieve a significant name for
+        the [Col]Variable involved in the Constraint/Objective (Function). This
+        is not terribly complex, but still requires some work. After this is done,
+        the model and an IS can be printed with relatively little effore exploiting
+        the existing print() infrastructure. Of course, once this is done one should
+        also do the same for Constraint names and print them out, too. Maybe some
+        infrastructure for printing only specific parts of the model could be
+        imagined.
+
+
+2020-02-17 [high] LagrangianDualBlock, BendersDecompositionBlock
+2020-08-20 [updated] LagrangianDualSolver, BendersDecompositionSolver
+
+	SMS++ is motivated by decomposition, and it offers LagBFunction and
+	BendersBFunction to handle a large part of the complications about
+	transforming an optimization problem into a C05Function (Lagrangian
+	or value one). However, the step from a :Block with appropriate
+	structure and the corresponding collection of C05Functions still
+	have to be done manually. LagrangianDualSolver and
+	BendersDecompositionSolver should automate this. The idea is that
+	they take a inner Block with appropriate structure (in the Lagrangian
+	case, no variables in the father and no other links between the sons but
+	the linear constraints in the father) and construct an appropriate :Block
+	(say, an AbstractBlock) representing the Lagrangian Dual / Benders'
+	Reformulation of the original Block. This is done by either "hyjacking"
+	or copying (R3B) its sons, storing them into appropriate LagBFunction or
+	BendersBFunction that are then stuffed into newly constructed
+	AbstractBlock and put as its sons. The original :Block will *not*
+	be destroied but rather kept, with its sons now referring to the
+	LagrangianDualBlock / BendersDecompositionBlock as their father,
+	but the original :Block "still believing" they are its sons. This
+	will allow a user having a reference to the original :Block to keep
+	working with it and keeping using it without even realising that its
+	Lagrangian Dual / Benders Reformulation are being solved instead.
+	This is a great alternative to having the :Block to manually produce
+	an appropriately structured R3Block of its, because it is all done
+	transparently inside a Solver that is attached to the original Block.
+
+
+2019-11-01 [medium-high] Block and Solver specify which kinds of Modification
+	   they care about, and Modification expose both their "kind" and
+	   what sort of effect they have on the whole problem
+
+	We introduce in Observer the type
+
+ using ModConcern = unsigned short int;
+
+        to encode for a bit-wise representation of what a Modification changes,
+	as dicteted by the following enum:
+
+ enum Modification_changes {
+  eModNothing      =     0;
+
+  eModStatAbstVar  =     1;
+  eModDyncAbstVar  =     2;
+  eModStatPhysVar  =     4;
+  eModDyncPhysVar  =     8;
+  eModStatAbstCns  =    16;
+  eModDyncAbstCns  =    32;
+  eModStatPhysCns  =    64;
+  eModDyncPhysCns  =   128;
+  eModAbstObj      =   256;
+  eModPhysObj      =   512;
+
+  eModAbst         =   307;
+  eModPhys         =   716;
+
+  eModAnything     =  1023;
+
+  eFsblRegnInc     =  1024;
+  eFsblRegnDec     =  2048;
+  eDualFsblRegnInc =  4096;
+  eDualFsblRegnDec =  8192;
+  
+  eObjcFnctInc     = 16384;
+  eObjcFnctDec     = 32768;
+
+  };
+
+	The anyone_there( void ) method of Observer becomes
+
+ virtual bool anyone_there( ModConcern what_for = eModAnything ) const = 0;
+
+        that has to return true if anyone is listening to "that particular
+	type of Modification" (default, anything). Correspondingly,
+
+ inline bool issue_mod( ModParam issueMod , ModConcern what_for )
+
+ inline bool issue_pmod( c_ModParam issueMod , ModConcern what_for )
+
+        now call anyone_there( what_for ).
+	
+        Solver has a method
+
+ virtual ModConcern concerned_by( void ) const {
+  return( Observer::eModAnything );
+  }
+
+        that declares which kind of Modifications it is interested in. Block
+	has exactly the same
+
+ virtual ModConcern concerned_by( void ) const { return( eModNothing ); }
+
+        that tells *whch Modifications the Block itself wants to see anyway*.
+	Typically these are those of objects in its abstract representation
+	whose abstract Modification have to be monitored to change the
+	physical representation as well. This may be "nothing", for instance
+	if the abstract representation has not been constructed (which
+	means that concerned_by() can change when generate_abstract_* are
+	called, triggering new calls to anyone_there(), see below), or if
+	there is no physical representation at all.
+
+	Also, anyone_there( bool ) becomes
+
+ void set_anyone_there( ModConcern concerned_by );
+
+	Block computes the logical "or" of:
+
+        - the codes returned by Solver::concerned_by() of its attached Solver
+
+	- the code returned by its own (virtual) Block::concerned_by()
+
+	- the code passed from is father using anyone_there()
+
+	and passes it to its sons using set_anyone_there(). It uses a field
+	f_concerned_by to store the result, and f_father_concerned_by to
+	store what was passed via set_anyone_there(); each time something
+	changes (a Solver is attached/detached, set_anyone_there() is called)
+	it recomputes f_concerned_by, if it changes calls set_anyone_there().
+
+	Before issuing any Modification, the issuer has to call
+	anyone_there( my_what_for ) to see if there is anyone interested in
+	that particular kind of Modification. Note that an abstract
+	Modification reaching a Block may trigger changes in the corresponding
+	physical representation of the Block, but not necessarily trigger a
+	physical Modification if there is no interested Solver in such a thing.
+
+	Modification object exposes a similarly bit-coded integer:
+
+ virtual ModConcern changes( void ) const = 0;
+
+        Possibly, specific MyModification also have
+
+ static constexpr I_change = ... ;
+
+        so that
+
+ ModConcern changes( void ) const override {
+  return( MyModification::I_change );
+  }
+
+        and the call to issue_[p]mod() can be generically made as
+
+ issue_[p]mod( ... , MyModification::I_change & eModAnything )
+
+        which automates the process somewhat. When the Modification is
+	handled in Block, mod->changes() is checked against
+	Solver::concerned_by() before being passed to any Solver, and
+	against Block::concerned_by() before being passed to the father.
+	The check is "mod->changes() & ...concerned_by()", in the sense
+	that at least one bit has to agree.
+
+	The "& eModAnything" in issue_[p]mod() above is because the
+	higher-order bits of changes() are reserved for a related but
+	different aim: generically indicating what is the expected effect
+	of the Modification on the problem. Note that eFsblRegnInc and
+	eFsblRegnDec can both be set to 1, meaning "no idea what the
+	change actually was", and similarly for eDualFsblRegnInc and
+	ePrimalFsblRegnDec, and  eObjcFnctInc and eObjcFnctDec.
+
+        There are specific issues for FunctionMod, since the Function is
+	used inside a FRowConstraint or FRealObjective.
+
+	First, FRowConstraint and FRealObjective need to "intercept"
+	FunctionVarMod to update the list of "active" Variable; hence,
+	FunctionVarMod have to declare themselves of type eModDyncAbstVar,
+	and F...::anyone_there( aw ) will have to check aw with the |=
+	between f_block->anyone_there( aw ) and eModDyncAbstVar.
+
+	Then, eFsblRegn[Inc/Dec] and eObjcFnct[Inc/Dec] make no sense for
+	a Function. However, FunctionMod[Vars]->shift() tells if the
+	Function has changed monotonically, which allows to properly
+	set eFsblRegn[Inc/Dec] and eObjcFnct[Inc/Dec]. This, however,
+	means that the fields will have to be set-able even after that
+	the Modification has been constructed, unlike most other ones.
+
+
+2020-02-17 [medium-high] Using "names" in AbstractPath
+
+	Allow to specify names (= strings) in AbstractPath rather than
+	indices to indicate specific Block or groups of Constraint/Variable.
+	This may require to move the f_name field of BlockConfiguration into
+	Block and define appropriate get_string_name() and set_string_name()
+	methods. Then, in the vector form of AbstractPath one could have
+	*both* a vector of indices and one of names, with the assumption
+	that if either one is complete the other can be avoided, and that if
+	both are present then string names (if not "") take precedence over
+	indices.
+
+
+2019-08-26 [medium-high] implement [de]serialize() in ColVariableSolution
+
+	the name says it all
+
+
+2019-08-29 [medium-high] implement [de]serialize() in AbstractBlock
+
+	the name says it all; if we are ever going to use it seriously inside
+	"true" models, this is needed. It is not simple, but it makes
+	AbstractBlock a lot more valuable since you don't always have to
+	build it up programmatically.
+
+
+2019-08-26 [medium-high] the Solver can return a Solution without the Block
+
+	We could have a
+
+           Solution * get_solution( Configuration * )
+
+        in the Solver. The default implementation will be to lock the Block,
+	call the standard get_solution() to write solution information in
+	the Block, ask the Block to produce a Solution, unlock the Block,
+	give the Solution back. However, a Solver that knows how the
+	specific :Solution is done can skip the Block and directly
+	produce an appropriate :Solution without having to lock the Block,
+	which avoids potential synchronization bottlenecks.
+
+
+2019-08-26 [medium] use the methods factory to work with "physical solution"
+
+        A Block may well have a "physical representation of the solution" that
+	is different from the "abstract representation". This may be
+	particularly useful for dual solutions, since it would allow them to
+	exist without the need for having the abstract representation of
+	Constraint constructed; but it would be nice to also have the
+	possibility to avoid to construct the abstract representation of the
+	Variable if nobody is really using it. This is now made possible by
+	the methods factory by just defining a set of interfaces for
+	*reading* from the Block, other than the existing ones for *writing*
+	into it. This may be used to read both data and solution information.
+	Maybe solution information could need to have a specific signature,
+	maybe not. This is relatively quick to do, but quite some comments
+	around Block will have to be updated.
+
+
+2019-03-17 [medium] Variable[Index]Set
+
+	ThinVarDepInterface and FunctionMod* use std::vector< Variable * > as
+	their standard way to describe sets of (indices) of Variable. We
+	could define a class VariableSet that acts as a repository of indices
+	of Variable. The class would be abstract, with a few obvious
+	implementations like std::vector< Variable * >  (or
+	template< class T> T< Variable * >) and something taking a
+	std::vector< Variable > & (or template< class T > T< Variable > & ) and
+	two iterators in it to represent a range in the vector. Also, some
+	"hybrid" data structure containing any number of the two objects
+	arranged in a container could be possible.
+
+	The class should have the typical STL container interface to be used
+	in for( : ) constructs and the rest.
+
+	An interesting possibility is to extract the relevant part of the
+	ThinVarDepInterface interface (mostly the virtual operators), and to
+	make ThinVarDepInterface itself derive from Variable[Index]Set.
+
+	One then have to use a Variable[Index]Set * everywhere
+	std::vector< Variable * > is currently used, which will be quite some
+	work.
+
+	The obvious disadvantage is that of having to jump through a virtual
+	layer each time one is iterating on some of these objects.
+
+
+2018-08-17 [medium] UnitTest
+
+	We should definitely start putting down the UnitTest of the core
+	SMS++. SimpleMILPBlock/test could be a nice starting point.
+
+
+2019-04-01 [medium] boost::stable_vector for dynamic stuff
+
+	Allow dynamic stuff to be stored in boost::stable_vector other than in
+	std::list. This has a BIG IF: IT IS NOT CLEAR IF ONE CAN EXTRACT A
+	SLICE OF A boost::stable_vector AND TAKE IT AWAY WITHOUT CHANGING THE
+	ADDRESS OF THE ELEMENTS. This should ideally be possible, but it does
+	not seem that boost::stable_vector supports this operation.
+
+
+2019-04-01 [medium] std::vector for dynamic stuff
+
+	Allow dynamic stuff to be stored in a std::stable_vector that has been
+	reserve()-d. Thus, no re-allocation would happen if the std::vector()
+	is resize()-d up until its size() <= capacity(). Dynamic stuff could
+	only be added and removed at the end, but the advantage over std::list
+	may well make it worth.
+
+
+2018-09-08 [low] DenseLinear function
+
+	Make LinearFunction a base class. Transform the current one in
+	SparseLinearFunction or Gen[eric]LinearFunction. Provide more
+	specialized implementations like D[ense]C[onstraint]LinearFunction,
+	where the coefficients are a std::vector< double > and the Variables
+	are a std::vector< Variable * > (with the idea that you don't care if
+	there are or not zeroes in the coefficient vector), a
+	D[oubly]D[ense]LinearFunction
+	where the coefficients are a std::vector< double > and the Variables
+	are a *pointer* to a std::vector< Variable >, and an
+	E[xternalD[oubly]D[ense]LinearFunction which is as the above except
+	that coefficients are a *pointer* to a std::vector< double >
+
+
+2018-08-17 [low] MultiVarConstraint
+
+	We could implement a template class MultiVarConstraint, inspired from
+	OneVarConstraint, that defines "group constraints" on arbitrary
+	containers of ColVariable. For instance, one could do a
+	MultiBoxConstraint that has a container of ColVariable and two
+	parallel containers of double (or a container of pairs) for the LHS
+	and RHS of the boxes. This would be fractionally less expensive than
+	a corresponding container of BoxConstraint, since for instance it
+	would be all-or-nothing in terms of relaxing it. Also, it might
+	perhaps lead to more efficient implementation of, say,
+	LinearConstraint if all the ColVariable you make a linear combination
+	of belong to the same (multi-)array; but I'm not really sure of it.
+	Since the advantage is not likely to be large, this is left for the
+	future (if ever).
+
+
+2019-02-21 [low] MultiVariable, MultiConstraint, MultiObjective, MultiFunction
+
+	We could implement a template class MultiColVariable< T > : ColVariable
+	that corresponds to "a T of ColVariable". Its value would be a
+	T< double >. This may fit in very well with DenseLinear and
+	MultiVarConstraint. The advantage is to avoid replication of the
+	Block pointer and of the f_state field, as well as decreasing a lot
+	the total number of Variable in a Block. The serious disadvantage is
+	that the thing can only be fixed or unfixed whole (which may
+	sometimes be an advantage), and that the MultiColVariable< T >
+	could be active in many Constraint ... unless we have things like
+	MultiVarConstraint that may represent a bunch of constraints in a
+	compact way, doubling down on the advantages.
+
+	Note that it could be left to the Configuration in
+	generate_abstract_variables() and generate_abstract_constraints()
+	[...] if one uses a MultiColVariable< T > or a T< ColVariable >, which
+	may allow to reap the advantages if there is, say, no need to fixing
+	variables individually, while having the standard fallback if this is
+	necessary.
+
+	Similar MultiConstraint< T >, MultiObjective< T > and MultiFunction< T >
+	may make sense, but details should be examined.
+
+	IMPORTANT: THIS DOES NOT CHANGE THE TOP STRUCTURE. These are just new
+	types of Variable, and one can still do a
+	boost::multi_array< MultiColVariable< std::vector > >.
+
+
+2019-02-22 [low] A Function with Col and MultiColVariable
+
+	We could implement a Function that has among its active
+	Variables, for example, both ColVariable and
+	MultiColVariable. Actually, the idea is that a concrete
+	implementation of Function could have a more general type of
+	Variable than ColVariable.
+
+	Let us consider, for instance, the LinearFunction. Currently,
+	LinearFunction is a function of ColVariables. We could create
+	another linear function, say GeneralLinearFunction, that would
+	have, say, GeneralRealVariables as active Variables. (The
+	names are not important now.) ColVariable and MultiColVariable
+	would both inherit from GeneralRealVariable. So, instead of
+	having pairs (ColVariable *, double coefficient) to represent
+	the linear function, as it is done in LinearFunction, we would
+	have pairs (GeneralRealVariable *, Coefficient [*]). For
+	ColVariable, the Coefficient could be a double. For
+	MultiColVariable, the Coefficient would be a more complicated
+	structure (or simply a list of pairs (iterator, double
+	coefficient) depending on how MultiColVariable is implemented
+	and the type of coefficient that is desired).
+
+
+2019-02-22 [low] Name of OneVarConstraint
+
+	OneVarConstraint could be called OneVarBoundConstraint, for
+	example. This would make its meaning clearer and
+	OneVarConstraint could be a more general constraint that
+	involves a single Variable.
+
+
+2018-04-06 [low at best] Separate the abstract and physical parts of a Block
+
+        It could be useful to have the abstract and physical
+        representations of a Block independent of each other. Some
+        reasons for that are:
+
+        1) Consider, for example, a Block that represents a network
+           flow problem. This problem has, in particular, balance
+           constraints for every node. If one of these constraints is
+           removed (relaxed), the resulting problem is not a network
+           flow problem. In this case, relaxing a balance constraint
+           through the abstract representation of the Block would then
+           lead to an exception when physical representation receives
+           the corresponding modification. However, if the abstract
+           representation is independent of the physical
+           representation, this exception would not be thrown. This
+           would allow a Solver to relax some of its constraints and
+           solve the problem.
+
+        2) When a modification occurs in the abstract part of a Block,
+           the physical part of the Block must be updated so that both
+           representations of the Block represents the same
+           problem. Likewise, when a change is made in the physical
+           part, the abstract part must be updated. If the abstract
+           and physical representations of a Block were separated,
+           there would be no need to keep them synchronized. For
+           example, the abstract part could be an R3 Block and
+           synchronizations, if desired, could be performed by means
+           of the map_forward_modifications() and
+           map_back_modifications() methods.
+
+
+2018-09-07 [low] Solver specifies which kinds of Modifications it cares about
+
+	An even more detailed version of the previous one: both Solver
+	and Block expose a std::set (or std::unoredered_set) of
+	std::type_info of the Modification types they "follow". At the
+	level of the single Block the unknown of the sets of the Solver
+	is computed, then the set of the Block itself is added, then
+	the set of the father is added, and then all this is sent to
+	the sons.
+
+
+2019-12-06 [low] Parameter in BendersBFunction to eliminate small values in A
+
+	BendersBFunction could have parameters that could be used to define
+	what a small number is. This could be used, for instance, to eliminate
+	entries of the mapping matrix A whose absolute values are small. There
+	could be two criteria for that: an absolute one and a relative
+	one. The absolute criterion would state that any number whose absolute
+	value is less than or equal to a threshold (parameter) Ta >= 0 would
+	be a small number that should be considered as zero. The relative
+	criterion could state that any number whose absolute value is less
+	than or equal to a fraction 0 <= T_r < 1 of some reference value (for
+	instance, the largest entry (in absolute value) of a row) would be a
+	small number (and therefore should be considered as zero). The default
+	values for these parameters would be zero and a number could be small
+	if it is absolutely small or relatively small.
+
+
+2019-12-06 [low] Variables in Function should be const
+
+	A Function should be dealing with pointers to const Variable, because,
+	in principle, it should only read the Variables, not modify
+	them. This, however, could prevent some unforeseen use of Function and
+	should be carefully thought. Also, it should be verified whether the
+	ThinVarDepInterface would allow this kind of change.
+
+
+
+################################################################################
+################################################################################
+#---------------------------------- DONE --------------------------------------#
+################################################################################
+################################################################################
+
+2019-02-22 2019-02-27 [very high] State and constraints inside (Col)Variable
+
+	The f_state data member of Variable informs whether the
+	Variable is fixed or not. This is a constraint that could be
+	represented, for example, as a OneVarConstraint (by setting
+	the lower and upper bounds equal to the value of the Variable)
+	or some variation of it. In ColVariable, the f_state is used
+	to indicate whether a Variable is binary, integer, or
+	continuous. These are constraints that could be also
+	represented as a variation of a OneVarConstraint.
+
+	Many other simple constraints on ColVariables are currently
+	being considered that makes use of f_state, such as,
+	non-positive and non-negative variables, but they could also
+	be represented as a variation of OneVarConstraint.
+
+	We must decide whether to keep the f_state member of Variable
+	or remove it. By removing it, we save memory and we should
+	create new constraints to represent the aforementioned
+	constraints on (Col)Variables.
+
+
+2018-03-22 [high] [LagrangianBlock, LagrangianFunction] and Solution
+
+	[...] Doing this in an abstract way (independent of Block)
+	surely requires the definition of a Solution object, which anyway
+	makes sense in itself, which has at least the operation "linear
+	combination".
+
+
+2018-03-22 2018-04-05 [high] Observers (and "Variable blob")
+
+        Currently, a change made to a Function produces a
+        FunctionModification that is added to the Block that owns the
+        Constraint or the Objective associated with that Function. The
+        Function should, instead, send the Modification to the
+        Constraint or the Objective, not directly to the Block. This
+        means that Constraint and Objective would be observing the
+        Function. This suggests that Constraint and Objective should
+        inherit from a class called Observer, for example, and that
+        the Function would send the Modification to an Observer.
+
+        Since Constraint and Objective have some methods in common
+        (for example, get_active_var() and remove_variable()), the
+        question is whether those methods should move to the Observer
+        class.
+
+        Moreover, Variable has a list of Constraints and Objectives in
+        which it is active. Should those lists be replaced by a single
+        list of Observers?
+
+        Further, since Function also has a lot in common with
+        Constraint and Objective, should Function derive from Observer
+        as well? In this case, the name Observer is not
+        suitable. Moreover, how would these Functions be considered in
+        the list of Observers maintained by a Variable? In particular,
+        how would we deal with the case where a Function is attached
+        to a Constraint or Objective and the case where the Function
+        is "free-floating" (it is not attached to anyone)?
+
+
+2018-04-08 [medium] better comments to C05Function and Observer
+
+	The rationale of methods like set_important_linearization() must be
+	better explained. Some comments about Modification in Block are better
+	moved to Observer. The rationale of Observer should be better commented.
+
+
+2018-07-07 [low] Is RowConstraint::f_value necessary?
+
+	Since FRowConstraint now uses upper and lower estimates, it may be that the
+	f_value field and all the rest in RowConstraint could better be removed.
+
+
+2018-04-06 [low] "Variable blob"
+
+        Constraint and Objective have some methods in common (for
+        example, get_active_var() and remove_variable()). Moreover,
+        Variable has a list of Constraints and Objectives in which it
+        is active. Should we create a superclass, let's say
+        VariableBlob, for Constraint, Objective, and Function, which
+        would have those methods in common, and then replace the lists
+        of Constraints and Objectives maintained by the Variable with
+        a single list of VariableBlobs?
+
+        Further, since Function also has a lot in common with
+        Constraint and Objective, should Function derive from
+        VariableBlob as well? In this case, how would the Functions be
+        considered in the list of VariableBlobs maintained by a
+        Variable?  In particular, how would we deal with the case
+        where a Function is attached to a Constraint or Objective and
+        the case where the Function is "free-floating" (it is not
+        attached to anyone)?
+
+
+2018-03-22 Abstract and physical modifications
+
+        Modifications reflect changes in either the abstract or the
+        physical representation of a Block. When the abstract
+        representation of a Block changes, the physical representation
+        of the Block must change accordingly. Likewise, when the
+        physical representation of a Block changes, its abstract
+        representation (if it has been generated) must change as
+        well. Keeping the abstract and the physical representations
+        synchronized is a task that is due to the Block. When the
+        Block receives a Modification associated with the abstract
+        representation, it must update its physical
+        representation. Conversely, when the Block modifies its
+        physical representation, it must update its abstract
+        representation. Hence, any change in a Block produces two
+        kinds of Modifications: one associated with the abstract
+        representation and one associated with the physical
+        representation of the Block.
+
+        For instance, consider KnapsackBlock that represents the
+        knapsack problem and has an array that stores the weights of
+        the items. In the abstract representation, these weights would
+        appear as coefficients of a linear function in a
+        constraint. When the KnapsackBlock changes the weight of an
+        item, it produces a Modification associated with its physical
+        representation. To keep the abstract and the physical
+        representations synchronized, the KnapsackBlock would have to
+        update that linear constraint where this weight appears as a
+        coefficient, which would then produce a Modification that is
+        associated with the abstract representation of the
+        KnapsackBlock.
+
+        A Solver may be working with either the abstract or the
+        physical representation of a Block (or even with both abstract
+        and physical representations in a more complicated
+        situation). Therefore, a Solver may only be interested in
+        Modifications associated with the abstract representation or
+        Modifications associated with the physical representation of
+        the Block.
+
+        If, for example, a Solver works only with the abstract
+        representation of a Block, then it would ignore any
+        Modification associated with the physical representation of
+        the Block.
+
+        In order to distinguish between the two kinds of
+        Modifications, we could have classes AbstractModification and
+        PhysicalModification deriving from Modification to represent
+        Modifications associated with the abstract and the physical
+        representation of a Block, respectively. Then, any other class
+        that represents a Modification would derive (directly or
+        indirectly) from AbstractModification or PhysicalModification.
+
+        For instance, the KnapsackBlock could have a
+        WeightModification, which represents a change in the weight of
+        an item. This Modification would then inherit from
+        PhysicalModification. The change of a coefficient of a linear
+        function produces a FunctionModification, which would then
+        inherit from AbstractModification.
+
+        It might be the case that VariableModification would need to
+        inherit from both AbstractModification and
+        PhysicalModification.
+
+
+2018-03-22 [low] Replacing individual modifications with a group modification
+
+        The production of Modifications could be optional. One
+        changing the abstract of physical representation of a Block
+        would then decide whether that action should or not produce a
+        Modification.
+
+        Currently, this is being done in the
+        remove_dynamic_variables() method from the Block class. When a
+        dynamic Variable is removed from a Block, it is removed from
+        every Objective and Constraint it is active in. Each removal
+        of a Variable from an Objective or Constraint produces an
+        individual Modification. In this case, it is optional to throw
+        these individual Modifications. This can be useful, for
+        example, when the BlockModificationAD modification that is
+        always thrown when a dynamic Variable is removed from a Block
+        is enough for Blocks and Solvers to be able to update
+        themselves.
+
+################################################################################
+################################################################################
+#-------------------------------- DISCARDED -----------------------------------#
+################################################################################
+################################################################################
+
+2018-03-22 [medium, pre-requisite LagrangianBlock] LagrangianUCBlock
+
+	Simply, the concrete implementation of get_r3_Block() in
+	UCBlock that produces the Lagrangian dual w.r.t. the energy
+	constraints, with all the methods to pass information back and
+	forth between this and the original one.
+
+

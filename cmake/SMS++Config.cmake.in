@@ -1,0 +1,55 @@
+# --------------------------------------------------------------------------- #
+#    Package configuration file                                               #
+#                                                                             #
+#    This file contains instructions on how to generate ***Config.cmake,      #
+#    that is, the file that tells CMake how the package should be             #
+#    configured when found by other projects using find_package().            #
+#                                                                             #
+#    ***Targets.cmake (to be found alongside this file) is the target import  #
+#    file that tells where the headers and library are. It will be different  #
+#    depending on a local build or an installed package.                      #
+#                                                                             #
+#                              Niccolo' Iardella                              #
+#                                Donato Meoli                                 #
+#                         Dipartimento di Informatica                         #
+#                             Universita' di Pisa                             #
+# --------------------------------------------------------------------------- #
+get_filename_component(@modName@_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH)
+include(CMakeFindDependencyMacro)
+
+# ----- Settings ------------------------------------------------------------ #
+set(BOOST_ROOT @BOOST_ROOT@)
+set(Eigen3_ROOT @Eigen3_ROOT@)
+set(netCDF_ROOT @netCDF_ROOT@)
+set(netCDFCxx_ROOT @netCDFCxx_ROOT@)
+
+# ----- Requirements -------------------------------------------------------- #
+find_dependency(Boost)
+
+# This is needed to find the find modules we provide
+list(APPEND CMAKE_MODULE_PATH ${@modName@_CMAKE_DIR})
+
+# Try first with library's own configuration file, then with our find module.
+find_package(Eigen3 NO_MODULE)
+if (NOT Eigen3_FOUND)
+    find_dependency(Eigen3)
+endif ()
+
+# Try first with library's own configuration file, then with our find module.
+if (UNIX)
+    find_package(netCDFCxx QUIET NO_MODULE)
+endif ()
+if (NOT netCDFCxx_FOUND)
+    find_package(netCDFCxx REQUIRED)
+endif ()
+
+list(REMOVE_AT CMAKE_MODULE_PATH -1)
+
+# ----- Import target ------------------------------------------------------- #
+if (NOT TARGET @modNamespace@::@modName@)
+    include("${@modName@_CMAKE_DIR}/@modName@Targets.cmake")
+endif ()
+
+set(@modName@_LIBRARIES @modNamespace@::@modName@)
+
+# --------------------------------------------------------------------------- #
